@@ -1,7 +1,7 @@
 {
     "name": "railway2-epoch-automation",
-    "version": "1.0.0",
-    "description": "77ME Epoch Automation - runs every 6 hours",
+    "version": "2.0.0",
+    "description": "66mee Epoch Automation - runs every 6 hours",
     "main": "index.js",
     "scripts": {
         "start": "node index.js"

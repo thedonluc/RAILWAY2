@@ -37,6 +37,7 @@ const ABI = [
     "function cycleInterval() external view returns (uint256)",
     "function currentDisplayCycleId() external view returns (uint256)",
     "function getAvailableEthForBuy() external view returns (uint256)",
+    "function getPendingDistributionCount() external view returns (uint256 nftRemaining, uint256 tokenRemaining)",
     // Snapshot monitoring
     "function isSnapshotInProgress() external view returns (bool)",
     "function getSnapshotProgress() external view returns (uint256 nftProgress, uint256 nftTotal, bool nftDone, uint256 tokenProgress, uint256 tokenTotal, bool tokenDone)",
@@ -44,7 +45,8 @@ const ABI = [
     "function getCurrentEpochInfo() external view returns (uint256 cycleId, uint256 ethRaised, uint256 ethForRewards, uint256 timeElapsed, uint256 timeRemaining, bool isEpochComplete, bool isSnapshotActive)",
     // Batch functions
     "function batchStartEpoch() external",
-    "function batchEndCycle() external"
+    "function batchEndCycle() external",
+    "function flushDistributions() external"
 ];
 
 // ====== HELPERS ======
@@ -239,11 +241,65 @@ async function runEndCycle() {
     log(`${'═'.repeat(60)}`);
 }
 
+// ====== MAIN: FLUSH DISTRIBUTIONS ======
+async function runFlush() {
+    log(`${'═'.repeat(60)}`);
+    log(`RAILWAY: FLUSH DISTRIBUTIONS`);
+    log(`${'═'.repeat(60)}`);
+    log(`This pays out remaining holders who didn't get paid via buys.`);
+
+    if (!PRIVATE_KEY || !REWARDS_CONTRACT) {
+        log("❌ Missing config");
+        process.exit(1);
+    }
+
+    const provider = new ethers.providers.JsonRpcProvider(RPC_URL);
+    const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
+    const contract = new ethers.Contract(REWARDS_CONTRACT, ABI, wallet);
+
+    // Check if distribution is active
+    const isDistActive = await contract.isDistActive();
+    if (!isDistActive) {
+        log("No active distribution. Nothing to flush.");
+        return;
+    }
+
+    // Check pending counts
+    const [nftRemaining, tokenRemaining] = await contract.getPendingDistributionCount();
+    log(`Pending: ${nftRemaining} NFT holders, ${tokenRemaining} token holders`);
+
+    if (nftRemaining.eq(0) && tokenRemaining.eq(0)) {
+        log("✓ All holders already paid. Nothing to flush.");
+        return;
+    }
+
+    // Flush distributions (Railway pays gas)
+    log(`🔄 Flushing remaining distributions...`);
+    const result = await safeCall(contract, 'flushDistributions', { gasLimit: 5000000 });
+
+    if (result.success) {
+        // Check again
+        const [nftAfter, tokenAfter] = await contract.getPendingDistributionCount();
+        log(`After flush: ${nftAfter} NFT holders, ${tokenAfter} token holders remaining`);
+    }
+
+    log(`\n${'═'.repeat(60)}`);
+    log(`✅ FLUSH COMPLETE`);
+    log(`${'═'.repeat(60)}`);
+}
+
 // ====== ENTRY POINT ======
 const mode = process.argv[2] || 'start';
 
 if (mode === 'end') {
     runEndCycle()
+        .then(() => process.exit(0))
+        .catch((e) => {
+            console.error(`❌ FATAL: ${e.message}`);
+            process.exit(1);
+        });
+} else if (mode === 'flush') {
+    runFlush()
         .then(() => process.exit(0))
         .catch((e) => {
             console.error(`❌ FATAL: ${e.message}`);
